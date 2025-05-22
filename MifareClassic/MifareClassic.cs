@@ -3,19 +3,21 @@ using System.Text;
 
 namespace MifareClassic
 {
-    public class MifareClassic
+    public class MifareClassicCard
     {
         private readonly byte[] _defaultKey = new byte[6] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
         private readonly byte[] _zero = new byte[16];
+        private readonly byte[] _readCardUID = { 0xFF, 0xCA, 0x00, 0x00, 0x00 };
+
         private List<byte> M4kWritableBlocks = new List<byte>();
         private List<byte> M2kWritableBlocks = new List<byte>();
         private IntPtr _hContext;
         private IntPtr _hCard;
         private IntPtr _activeProtocol;
+        private string _readerName = string.Empty;
 
         public int SCardEstablishContextReturn { get; private set; }
-        public int SCardConnectReturn { get; private set; }
-        public string? APDUReturn { get; private set; }
+        public int SCardConnectReturn { get; private set; }        
 
         #region winscard.dll
         const uint SCARD_SCOPE_USER = 0;
@@ -49,12 +51,13 @@ namespace MifareClassic
         static SCARD_IO_REQUEST SCARD_PCI_T1 = new SCARD_IO_REQUEST() { dwProtocol = SCARD_PROTOCOL_T1, cbPciLength = (uint)Marshal.SizeOf(typeof(SCARD_IO_REQUEST)) };
         #endregion
 
-        public MifareClassic()
+        public MifareClassicCard()
         {
             M4kWritableBlocks = M4kGetWritableBlocks();
             M2kWritableBlocks = M2kGetWritableBlocks();
             SCardEstablishContextReturn = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out _hContext);
             SCardConnectReturn = SCardConnect(_hContext, GetReaderName(), SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
+            _readerName = GetReaderName();
         }
 
         #region Private Methods
@@ -78,17 +81,28 @@ namespace MifareClassic
         #region Public Methods
         public string GetReaderName()
         {
-            //IntPtr hContext;
-            //int result = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out hContext);
-            //if (result != 0)
-            //{
-            //    return result.ToString();
-            //}
             uint readersLength = 1024;
             byte[] readersList = new byte[readersLength];
             SCardListReaders(_hContext, null, readersList, ref readersLength);
             string readerName = Encoding.ASCII.GetString(readersList, 0, (int)readersLength - 1).Split('\0')[0];
             return readerName;
+        }
+        public bool IsReaderReady()
+        {
+            return _readerName != string.Empty;
+        }
+        public string GetCardUID()
+        {
+            if (IsReaderReady())
+            {
+                string ret = SendAPDU(_hCard, _readCardUID) ?? string.Empty;
+                return ret;
+            }
+            else { return string.Empty; }
+        }
+        public void CardDisconnect()
+        {
+            SCardDisconnect(_hCard, (int)SCARD_LEAVE_CARD);
         }
         #endregion
 
@@ -168,20 +182,20 @@ namespace MifareClassic
             result = SCardTransmit(hCard, ref ioRequest, auth, auth.Length, IntPtr.Zero, recv, ref recvLen);
             return result == 0 && recv[recvLen - 2] == 0x90 && recv[recvLen - 1] == 0x00;
         }
+        private string M4kReadBlock(IntPtr hCard, uint protocol, byte block)
+        {
+            byte[] read = new byte[] { 0xFF, 0xB0, 0x00, block, 0x10 };
+            byte[] recv = new byte[258];
+            int recvLen = recv.Length;
 
+            SCARD_IO_REQUEST ioRequest = new SCARD_IO_REQUEST { dwProtocol = protocol, cbPciLength = 8 };
+            int result = SCardTransmit(hCard, ref ioRequest, read, read.Length, IntPtr.Zero, recv, ref recvLen);
+            byte[] data = new byte[recvLen - 2];
+            Array.Copy(recv, data, data.Length);
+            return Encoding.UTF8.GetString(data);
+        }
         public string M4kReadAllBlocksToString(string readerName, byte[]? authKey = null)
         {
-            //IntPtr hContext;
-            //int result = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out hContext);
-            //if (result != 0)
-            //{
-            //    return result.ToString();
-            //}
-
-            //IntPtr hCard;
-            //IntPtr activeProtocol;
-            //SCardConnect(_hContext, readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
-
             if (authKey == null) authKey = _defaultKey;
             StringBuilder content = new StringBuilder();
 
@@ -191,11 +205,7 @@ namespace MifareClassic
                 int firstBlock = GetFirstBlockOfSector(sector);
 
                 // Authenticate first block only (will be enough for each sector)
-                if (!AuthenticateBlock(_hCard, (uint)_activeProtocol, (byte)firstBlock, 0x60, 0x00, authKey))
-                {
-                    Console.WriteLine($"[!] Autentikáció sikertelen a {sector}. szektorhoz.");
-                    continue;
-                }
+                AuthenticateBlock(_hCard, (uint)_activeProtocol, (byte)firstBlock, 0x60, 0x00, authKey);  
 
                 for (byte i = 0; i < blocksInSector; i++)
                 {
@@ -205,26 +215,9 @@ namespace MifareClassic
                         content.Append(M4kReadBlock(_hCard, (uint)_activeProtocol, blockNumber));
                     }
                 }
-            }
-            SCardDisconnect(_hCard, (int)SCARD_LEAVE_CARD);
+            }            
             return content.ToString();
         }
-        private string M4kReadBlock(IntPtr hCard, uint protocol, byte block)
-        {
-            byte[] read = new byte[] { 0xFF, 0xB0, 0x00, block, 0x10 };
-            byte[] recv = new byte[258];
-            int recvLen = recv.Length;
-
-            SCARD_IO_REQUEST ioRequest = new SCARD_IO_REQUEST { dwProtocol = protocol, cbPciLength = 8 };
-            int result = SCardTransmit(hCard, ref ioRequest, read, read.Length, IntPtr.Zero, recv, ref recvLen);
-            if (result != 0 || recvLen < 2 || recv[recvLen - 2] != 0x90 || recv[recvLen - 1] != 0x00)
-                return "<ERROR>";
-
-            byte[] data = new byte[recvLen - 2];
-            Array.Copy(recv, data, data.Length);
-            return Encoding.UTF8.GetString(data);
-        }
-
         private int GetFirstBlockOfSector(int sector)
         {
             if (sector < 32)
@@ -235,23 +228,8 @@ namespace MifareClassic
         #endregion
 
         #region Classic4k Write All Block
-        private string M4kWriteBlock(string readerName, byte[] blockData, byte blockNumber, byte[]? authKey = null)
+        private void M4kWriteBlock(string readerName, byte[] blockData, byte blockNumber, byte[]? authKey = null)
         {
-            //IntPtr hContext;
-            //int result = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out hContext);
-            //if (result != 0)
-            //{
-            //    return result.ToString();
-            //}
-
-            //IntPtr hCard;
-            //IntPtr activeProtocol;
-            //result = SCardConnect(hContext, readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out hCard, out activeProtocol);
-
-            //if (result != 0)
-            //{
-            //    return result.ToString();
-            //}
             if (authKey == null) authKey = _defaultKey;
 
             byte[] loadKey = new byte[] {
@@ -282,32 +260,34 @@ namespace MifareClassic
             //Encoding.ASCII.GetBytes(blockData).CopyTo(writeBlock, 5);
             Array.Copy(blockData, 0, writeBlock, 5, Math.Min(16, blockData.Length));
 
-            string ret = SendAPDU(_hCard, writeBlock);
-
-            SCardDisconnect(_hCard, (int)SCARD_LEAVE_CARD);
-            return ret;
+            SendAPDU(_hCard, writeBlock); 
         }
 
-        public void M4kWriteAllBlocksToString(string reader, string data)
+        public void M4kWriteAllBlocksToString(string reader, string data, bool clearCard = false)
         {
             List<byte[]> chunkedData = new List<byte[]>();
             byte[] dataInBytes = Encoding.UTF8.GetBytes(data);
             //Split data to 16 bytes
-            for (int i = 0; i < dataInBytes.Length; i += 16)
+            int count = 0;
+            for (int i = 0 ; i < dataInBytes.Length; i += 16)
             {
+                if (count == M4kWritableBlocks.Count) { break; }
                 int blockSize = Math.Min(16, dataInBytes.Length - i);
                 byte[] chunk = new byte[blockSize];
                 Array.Copy(dataInBytes, i, chunk, 0, blockSize);
                 chunkedData.Add(chunk);
+                count++;
             }
-
-            //Clear card before writing data
-            for (int c = 0; c < M4kWritableBlocks.Count; c++)
+            if (clearCard)
             {
-                M4kWriteBlock(reader, _zero, M4kWritableBlocks[c]);
+                //Clear card before writing data
+                for (int c = 0; c < M4kWritableBlocks.Count; c++)
+                {
+                    M4kWriteBlock(reader, _zero, M4kWritableBlocks[c]);
+                }
             }
             //Write actual data
-            for (int i = 0; i < chunkedData.Count; i++)
+            for (int i = 0; i < chunkedData.Count; i++) 
             {
                 M4kWriteBlock(reader, chunkedData[i], M4kWritableBlocks[i]);
             }
