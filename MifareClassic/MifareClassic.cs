@@ -6,13 +6,16 @@ namespace MifareClassic
     public class MifareClassic
     {
         private readonly byte[] _defaultKey = new byte[6] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+        private readonly byte[] _zero = new byte[16];
+        private List<byte> M4kWritableBlocks = new List<byte>();
+        private List<byte> M2kWritableBlocks = new List<byte>();
         private IntPtr _hContext;
         private IntPtr _hCard;
         private IntPtr _activeProtocol;
 
-        public int SCardEstablishContextReturn { get; private set;}
-        public int SCardConnectReturn { get; private set;}
-        public string? APDUReturn {get; private set;}
+        public int SCardEstablishContextReturn { get; private set; }
+        public int SCardConnectReturn { get; private set; }
+        public string? APDUReturn { get; private set; }
 
         #region winscard.dll
         const uint SCARD_SCOPE_USER = 0;
@@ -47,7 +50,9 @@ namespace MifareClassic
         #endregion
 
         public MifareClassic()
-        {            
+        {
+            M4kWritableBlocks = M4kGetWritableBlocks();
+            M2kWritableBlocks = M2kGetWritableBlocks();
             SCardEstablishContextReturn = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out _hContext);
             SCardConnectReturn = SCardConnect(_hContext, GetReaderName(), SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
         }
@@ -80,10 +85,32 @@ namespace MifareClassic
             //    return result.ToString();
             //}
             uint readersLength = 1024;
-            byte[] readersList = new byte[1024];
+            byte[] readersList = new byte[readersLength];
             SCardListReaders(_hContext, null, readersList, ref readersLength);
             string readerName = Encoding.ASCII.GetString(readersList, 0, (int)readersLength - 1).Split('\0')[0];
             return readerName;
+        }
+        #endregion
+
+        #region Classic2k
+        public bool M2kIsBlockWritable(byte blockNumber)
+        {
+            //UID Block
+            if (blockNumber == 0)
+                return false;
+
+            // Sector 0–31: 4 block / sector
+            return (blockNumber + 1) % 4 != 0;
+        }
+
+        public List<byte> M2kGetWritableBlocks()
+        {
+            List<byte> writableBlocks = new List<byte>();
+            for (int i = 0; i < 129; i++)
+            {
+                if (M2kIsBlockWritable((byte)i)) writableBlocks.Add((byte)i);
+            }
+            return writableBlocks;
         }
         #endregion
 
@@ -154,7 +181,7 @@ namespace MifareClassic
             //IntPtr hCard;
             //IntPtr activeProtocol;
             //SCardConnect(_hContext, readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
-            
+
             if (authKey == null) authKey = _defaultKey;
             StringBuilder content = new StringBuilder();
 
@@ -226,7 +253,7 @@ namespace MifareClassic
             //    return result.ToString();
             //}
             if (authKey == null) authKey = _defaultKey;
-            
+
             byte[] loadKey = new byte[] {
                     0xFF, 0x82, 0x00, 0x00, 0x06,
                     authKey[0], authKey[1], authKey[2], authKey[3], authKey[4], authKey[5]
@@ -263,10 +290,9 @@ namespace MifareClassic
 
         public void M4kWriteAllBlocksToString(string reader, string data)
         {
-            List<byte> writableBlocks = M4kGetWritableBlocks();
             List<byte[]> chunkedData = new List<byte[]>();
             byte[] dataInBytes = Encoding.UTF8.GetBytes(data);
-
+            //Split data to 16 bytes
             for (int i = 0; i < dataInBytes.Length; i += 16)
             {
                 int blockSize = Math.Min(16, dataInBytes.Length - i);
@@ -275,16 +301,15 @@ namespace MifareClassic
                 chunkedData.Add(chunk);
             }
 
-            byte[] zero = new byte[16];
-
-            for (int c = 0; c < writableBlocks.Count; c++)
+            //Clear card before writing data
+            for (int c = 0; c < M4kWritableBlocks.Count; c++)
             {
-                M4kWriteBlock(reader, zero, writableBlocks[c]);
+                M4kWriteBlock(reader, _zero, M4kWritableBlocks[c]);
             }
-
+            //Write actual data
             for (int i = 0; i < chunkedData.Count; i++)
             {
-                M4kWriteBlock(reader, chunkedData[i], writableBlocks[i]);
+                M4kWriteBlock(reader, chunkedData[i], M4kWritableBlocks[i]);
             }
         }
         #endregion
