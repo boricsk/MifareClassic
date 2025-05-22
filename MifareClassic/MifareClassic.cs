@@ -9,12 +9,12 @@ namespace MifareClassic
         private readonly byte[] _zero = new byte[16];
         private readonly byte[] _readCardUID = { 0xFF, 0xCA, 0x00, 0x00, 0x00 };
 
-        private List<byte> M4kWritableBlocks = new List<byte>();
-        private List<byte> M2kWritableBlocks = new List<byte>();
-        private IntPtr _hContext;
-        private IntPtr _hCard;
-        private IntPtr _activeProtocol;
-        private string _readerName = string.Empty;
+        private readonly List<byte> M4kWritableBlocks = new List<byte>();
+        private readonly List<byte> M2kWritableBlocks = new List<byte>();
+        private readonly IntPtr _hContext;
+        private readonly IntPtr _hCard;
+        private readonly IntPtr _activeProtocol;
+        private readonly string _readerName = string.Empty;
 
         public int SCardEstablishContextReturn { get; private set; }
         public int SCardConnectReturn { get; private set; }        
@@ -56,8 +56,9 @@ namespace MifareClassic
             M4kWritableBlocks = M4kGetWritableBlocks();
             M2kWritableBlocks = M2kGetWritableBlocks();
             SCardEstablishContextReturn = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out _hContext);
-            SCardConnectReturn = SCardConnect(_hContext, GetReaderName(), SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
             _readerName = GetReaderName();
+            SCardConnectReturn = SCardConnect(_hContext, _readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
+            
         }
 
         #region Private Methods
@@ -194,7 +195,7 @@ namespace MifareClassic
             Array.Copy(recv, data, data.Length);
             return Encoding.UTF8.GetString(data);
         }
-        public string M4kReadAllBlocksToString(string readerName, byte[]? authKey = null)
+        public string M4kReadAllBlocksToString( byte[]? authKey = null)
         {
             if (authKey == null) authKey = _defaultKey;
             StringBuilder content = new StringBuilder();
@@ -228,7 +229,7 @@ namespace MifareClassic
         #endregion
 
         #region Classic4k Write All Block
-        private void M4kWriteBlock(string readerName, byte[] blockData, byte blockNumber, byte[]? authKey = null)
+        private void M4kWriteBlock(byte[] blockData, byte blockNumber, byte[]? authKey = null)
         {
             if (authKey == null) authKey = _defaultKey;
 
@@ -283,13 +284,13 @@ namespace MifareClassic
                 //Clear card before writing data
                 for (int c = 0; c < M4kWritableBlocks.Count; c++)
                 {
-                    M4kWriteBlock(reader, _zero, M4kWritableBlocks[c]);
+                    M4kWriteBlock(_zero, M4kWritableBlocks[c]);
                 }
             }
             //Write actual data
             for (int i = 0; i < chunkedData.Count; i++) 
             {
-                M4kWriteBlock(reader, chunkedData[i], M4kWritableBlocks[i]);
+                M4kWriteBlock(chunkedData[i], M4kWritableBlocks[i]);
             }
         }
         #endregion
