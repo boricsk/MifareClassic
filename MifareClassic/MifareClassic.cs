@@ -5,8 +5,16 @@ namespace MifareClassic
 {
     public class MifareClassic
     {
-        private byte[] defaultKey = new byte[6] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+        private readonly byte[] _defaultKey = new byte[6] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+        private IntPtr _hContext;
+        private IntPtr _hCard;
+        private IntPtr _activeProtocol;
 
+        public int SCardEstablishContextReturn { get; private set;}
+        public int SCardConnectReturn { get; private set;}
+        public string? APDUReturn {get; private set;}
+
+        #region winscard.dll
         const uint SCARD_SCOPE_USER = 0;
         const uint SCARD_SHARE_SHARED = 2;
         const uint SCARD_PROTOCOL_T0 = 1;
@@ -23,9 +31,7 @@ namespace MifareClassic
         static extern int SCardConnect(IntPtr hContext, string szReader, uint dwShareMode, uint dwPreferredProtocols, out IntPtr phCard, out IntPtr pdwActiveProtocol);
 
         [DllImport("winscard.dll")]
-        static extern int SCardTransmit(IntPtr hCard, ref SCARD_IO_REQUEST pioSendPci,
-            byte[] pbSendBuffer, int cbSendLength,
-            IntPtr pioRecvPci, byte[] pbRecvBuffer, ref int pcbRecvLength);
+        static extern int SCardTransmit(IntPtr hCard, ref SCARD_IO_REQUEST pioSendPci, byte[] pbSendBuffer, int cbSendLength, IntPtr pioRecvPci, byte[] pbRecvBuffer, ref int pcbRecvLength);
 
         [DllImport("winscard.dll")]
         static extern int SCardDisconnect(IntPtr hCard, int dwDisposition);
@@ -38,10 +44,12 @@ namespace MifareClassic
         }
 
         static SCARD_IO_REQUEST SCARD_PCI_T1 = new SCARD_IO_REQUEST() { dwProtocol = SCARD_PROTOCOL_T1, cbPciLength = (uint)Marshal.SizeOf(typeof(SCARD_IO_REQUEST)) };
+        #endregion
 
         public MifareClassic()
-        {
-
+        {            
+            SCardEstablishContextReturn = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out _hContext);
+            SCardConnectReturn = SCardConnect(_hContext, GetReaderName(), SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
         }
 
         #region Private Methods
@@ -65,15 +73,15 @@ namespace MifareClassic
         #region Public Methods
         public string GetReaderName()
         {
-            IntPtr hContext;
-            int result = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out hContext);
-            if (result != 0)
-            {
-                return result.ToString();
-            }
+            //IntPtr hContext;
+            //int result = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out hContext);
+            //if (result != 0)
+            //{
+            //    return result.ToString();
+            //}
             uint readersLength = 1024;
             byte[] readersList = new byte[1024];
-            result = SCardListReaders(hContext, null, readersList, ref readersLength);
+            SCardListReaders(_hContext, null, readersList, ref readersLength);
             string readerName = Encoding.ASCII.GetString(readersList, 0, (int)readersLength - 1).Split('\0')[0];
             return readerName;
         }
@@ -106,7 +114,7 @@ namespace MifareClassic
         #region Classick4 Read All Block
         private bool AuthenticateBlock(IntPtr hCard, uint protocol, byte block, byte keyType, byte keyNumber, byte[] key)
         {
-            // PC/SC: először betöltjük a kulcsot a kártyaolvasóba
+            // Load ket to reader
             byte[] loadKey = new byte[11];
             loadKey[0] = 0xFF;
             loadKey[1] = 0x82; // Load key
@@ -122,7 +130,7 @@ namespace MifareClassic
             if (result != 0 || recv[recvLen - 2] != 0x90 || recv[recvLen - 1] != 0x00)
                 return false;
 
-            // Most autentikálunk
+            // Authentication
             byte[] auth = new byte[]
             {
                 0xFF, 0x86, 0x00, 0x00, 0x05,
@@ -134,18 +142,20 @@ namespace MifareClassic
             return result == 0 && recv[recvLen - 2] == 0x90 && recv[recvLen - 1] == 0x00;
         }
 
-        public string M4kReadAllBlocksToString(string readerName)
+        public string M4kReadAllBlocksToString(string readerName, byte[]? authKey = null)
         {
-            IntPtr hContext;
-            int result = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out hContext);
-            if (result != 0)
-            {
-                return result.ToString();
-            }
+            //IntPtr hContext;
+            //int result = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out hContext);
+            //if (result != 0)
+            //{
+            //    return result.ToString();
+            //}
 
-            IntPtr hCard;
-            IntPtr activeProtocol;
-            result = SCardConnect(hContext, readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out hCard, out activeProtocol);
+            //IntPtr hCard;
+            //IntPtr activeProtocol;
+            //SCardConnect(_hContext, readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
+            
+            if (authKey == null) authKey = _defaultKey;
             StringBuilder content = new StringBuilder();
 
             for (int sector = 0; sector < 40; sector++)
@@ -154,7 +164,7 @@ namespace MifareClassic
                 int firstBlock = GetFirstBlockOfSector(sector);
 
                 // Authenticate first block only (will be enough for each sector)
-                if (!AuthenticateBlock(hCard, (uint)activeProtocol, (byte)firstBlock, 0x60, 0x00, defaultKey))
+                if (!AuthenticateBlock(_hCard, (uint)_activeProtocol, (byte)firstBlock, 0x60, 0x00, authKey))
                 {
                     Console.WriteLine($"[!] Autentikáció sikertelen a {sector}. szektorhoz.");
                     continue;
@@ -165,10 +175,11 @@ namespace MifareClassic
                     byte blockNumber = (byte)(firstBlock + i);
                     if (M4kIsBlockWritable(blockNumber))
                     {
-                        content.Append(M4kReadBlock(hCard, (uint)activeProtocol, blockNumber));
+                        content.Append(M4kReadBlock(_hCard, (uint)_activeProtocol, blockNumber));
                     }
                 }
             }
+            SCardDisconnect(_hCard, (int)SCARD_LEAVE_CARD);
             return content.ToString();
         }
         private string M4kReadBlock(IntPtr hCard, uint protocol, byte block)
@@ -197,43 +208,43 @@ namespace MifareClassic
         #endregion
 
         #region Classic4k Write All Block
-        private string M4kWriteBlock(string readerName, byte[] blockData, byte blockNumber)
+        private string M4kWriteBlock(string readerName, byte[] blockData, byte blockNumber, byte[]? authKey = null)
         {
-            IntPtr hContext;
-            int result = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out hContext);
-            if (result != 0)
-            {
-                return result.ToString();
-            }
+            //IntPtr hContext;
+            //int result = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out hContext);
+            //if (result != 0)
+            //{
+            //    return result.ToString();
+            //}
 
-            IntPtr hCard;
-            IntPtr activeProtocol;
-            result = SCardConnect(hContext, readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out hCard, out activeProtocol);
+            //IntPtr hCard;
+            //IntPtr activeProtocol;
+            //result = SCardConnect(hContext, readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out hCard, out activeProtocol);
 
-            if (result != 0)
-            {
-                return result.ToString();
-            }
-
-            // 🟠 Példa: Authenticate blokk hoz, kulcs A = FF FF FF FF FF FF
+            //if (result != 0)
+            //{
+            //    return result.ToString();
+            //}
+            if (authKey == null) authKey = _defaultKey;
+            
             byte[] loadKey = new byte[] {
                     0xFF, 0x82, 0x00, 0x00, 0x06,
-                    defaultKey[0], defaultKey[1], defaultKey[2], defaultKey[3], defaultKey[4], defaultKey[5]
+                    authKey[0], authKey[1], authKey[2], authKey[3], authKey[4], authKey[5]
                 };
-            SendAPDU(hCard, loadKey);
+            SendAPDU(_hCard, loadKey);
 
             byte[] authBlock = new byte[] {
                     0xFF, 0x86, 0x00, 0x00, 0x05,
                     0x01, 0x00, blockNumber, 0x60, 0x00
                 };
-            SendAPDU(hCard, authBlock);
+            SendAPDU(_hCard, authBlock);
 
             SCARD_IO_REQUEST ioRequest = new SCARD_IO_REQUEST()
             {
-                dwProtocol = (uint)activeProtocol,
+                dwProtocol = (uint)_activeProtocol,
                 cbPciLength = (uint)Marshal.SizeOf(typeof(SCARD_IO_REQUEST))
             };
-            // 🔴 Írás blokkra
+            // Write to block
             byte[] writeBlock = new byte[21];
             writeBlock[0] = 0xFF;
             writeBlock[1] = 0xD6;
@@ -244,9 +255,9 @@ namespace MifareClassic
             //Encoding.ASCII.GetBytes(blockData).CopyTo(writeBlock, 5);
             Array.Copy(blockData, 0, writeBlock, 5, Math.Min(16, blockData.Length));
 
-            string ret = SendAPDU(hCard, writeBlock);
+            string ret = SendAPDU(_hCard, writeBlock);
 
-            SCardDisconnect(hCard, (int)SCARD_LEAVE_CARD);
+            SCardDisconnect(_hCard, (int)SCARD_LEAVE_CARD);
             return ret;
         }
 
