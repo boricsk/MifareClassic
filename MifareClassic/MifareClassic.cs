@@ -11,7 +11,6 @@ namespace MifareClassic
         private readonly byte[] _readCardUID = { 0xFF, 0xCA, 0x00, 0x00, 0x00 };
 
         private readonly List<byte> M4kWritableBlocks = new List<byte>();
-        private readonly List<byte> M2kWritableBlocks = new List<byte>();
         private readonly IntPtr _hContext;
         private readonly IntPtr _hCard;
         private readonly IntPtr _activeProtocol;
@@ -55,7 +54,6 @@ namespace MifareClassic
         public MifareClassicCard()
         {
             M4kWritableBlocks = M4kGetWritableBlocks();
-            M2kWritableBlocks = M2kGetWritableBlocks();
             SCardEstablishContextReturn = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out _hContext);
             _readerName = GetReaderName();
             SCardConnectReturn = SCardConnect(_hContext, _readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
@@ -63,14 +61,12 @@ namespace MifareClassic
         }
 
         #region Private Methods
-        private byte[] SendAPDU(IntPtr hCard, byte[] command)
+        private string SendAPDU(IntPtr hCard, byte[] command)
         {
             byte[] recvBuffer = new byte[258];
             int recvLength = recvBuffer.Length;
             int result = SCardTransmit(hCard, ref SCARD_PCI_T1, command, command.Length, IntPtr.Zero, recvBuffer, ref recvLength);
-            //return BitConverter.ToString(recvBuffer, 0, recvLength);
-            return recvBuffer;
-
+            return BitConverter.ToString(recvBuffer, 0, recvLength);
         }
         #endregion
 
@@ -91,13 +87,8 @@ namespace MifareClassic
         {
             if (IsReaderReady())
             {
-                //string ret = SendAPDU(_hCard, _readCardUID) ?? string.Empty;
-                //return ret;
-
-                byte[] ret = SendAPDU(_hCard, _readCardUID);
-                return BitConverter.ToString(ret, 0, ret.Length);
-                //return Encoding.UTF8.GetString(ret);
-
+                string ret = SendAPDU(_hCard, _readCardUID) ?? string.Empty;
+                return ret;
             }
             else { return string.Empty; }
         }
@@ -107,30 +98,8 @@ namespace MifareClassic
         }
         #endregion
 
-        #region Classic2k
-        public bool M2kIsBlockWritable(byte blockNumber)
-        {
-            //UID Block
-            if (blockNumber == 0)
-                return false;
-
-            // Sector 0–31: 4 block / sector
-            return (blockNumber + 1) % 4 != 0;
-        }
-
-        public List<byte> M2kGetWritableBlocks()
-        {
-            List<byte> writableBlocks = new List<byte>();
-            for (int i = 0; i < 129; i++)
-            {
-                if (M2kIsBlockWritable((byte)i)) writableBlocks.Add((byte)i);
-            }
-            return writableBlocks;
-        }
-        #endregion
-
         #region Classic4k
-        public bool M4kIsBlockWritable(byte blockNumber)
+        private bool M4kIsBlockWritable(byte blockNumber)
         {
             //UID Block
             if (blockNumber == 0)
@@ -143,7 +112,7 @@ namespace MifareClassic
             // Sector 32–39: 16 block / sector
             return (blockNumber + 1 - 128) % 16 != 0;
         }
-        public List<byte> M4kGetWritableBlocks()
+        private List<byte> M4kGetWritableBlocks()
         {
             List<byte> writableBlocks = new List<byte>();
             for (int i = 0; i < 256; i++)
@@ -264,7 +233,7 @@ namespace MifareClassic
             SendAPDU(_hCard, writeBlock);
         }
 
-        public void M4kWriteAllBlocksToString(string reader, string data, bool clearCard = false)
+        public void M4kWriteAllBlocksToString(string data, bool clearCard = false)
         {
             List<byte[]> chunkedData = new List<byte[]>();
             byte[] dataInBytes = Encoding.UTF8.GetBytes(data);
