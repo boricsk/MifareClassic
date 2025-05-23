@@ -23,7 +23,7 @@ namespace MifareClassic4KDemo
             //Get card UID
             Console.WriteLine(myCard.GetCardUID());
             
-            //Write data
+            //Write data (Second parameter is optional, the defult vaue is false. You can control with it the delete old data from the card before wite new one.)
             string input = "Vestibulum mattis consequat purus, molestie bibendum est commodo interdum. Vestibulum eu dolor lectus. Morbi malesuada sem eget rutrum venenatis. Etiam non lorem neque. Pellentesque tellus erat, convallis id mattis non, pretium sit amet leo.";
             myCard.M4kWriteAllBlocksToString(input, true);
             
