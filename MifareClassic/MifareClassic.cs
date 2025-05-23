@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using System.Text;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace MifareClassic
 {
@@ -17,7 +18,7 @@ namespace MifareClassic
         private readonly string _readerName = string.Empty;
 
         public int SCardEstablishContextReturn { get; private set; }
-        public int SCardConnectReturn { get; private set; }        
+        public int SCardConnectReturn { get; private set; }
 
         #region winscard.dll
         const uint SCARD_SCOPE_USER = 0;
@@ -58,24 +59,18 @@ namespace MifareClassic
             SCardEstablishContextReturn = SCardEstablishContext(SCARD_SCOPE_USER, IntPtr.Zero, IntPtr.Zero, out _hContext);
             _readerName = GetReaderName();
             SCardConnectReturn = SCardConnect(_hContext, _readerName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T1, out _hCard, out _activeProtocol);
-            
+
         }
 
         #region Private Methods
-        private string SendAPDU(IntPtr hCard, byte[] command)
+        private byte[] SendAPDU(IntPtr hCard, byte[] command)
         {
             byte[] recvBuffer = new byte[258];
             int recvLength = recvBuffer.Length;
             int result = SCardTransmit(hCard, ref SCARD_PCI_T1, command, command.Length, IntPtr.Zero, recvBuffer, ref recvLength);
+            //return BitConverter.ToString(recvBuffer, 0, recvLength);
+            return recvBuffer;
 
-            if (result == 0)
-            {
-                return BitConverter.ToString(recvBuffer, 0, recvLength);
-            }
-            else
-            {
-                return result.ToString();
-            }
         }
         #endregion
 
@@ -96,8 +91,13 @@ namespace MifareClassic
         {
             if (IsReaderReady())
             {
-                string ret = SendAPDU(_hCard, _readCardUID) ?? string.Empty;
-                return ret;
+                //string ret = SendAPDU(_hCard, _readCardUID) ?? string.Empty;
+                //return ret;
+
+                byte[] ret = SendAPDU(_hCard, _readCardUID);
+                return BitConverter.ToString(ret, 0, ret.Length);
+                //return Encoding.UTF8.GetString(ret);
+
             }
             else { return string.Empty; }
         }
@@ -195,7 +195,7 @@ namespace MifareClassic
             Array.Copy(recv, data, data.Length);
             return Encoding.UTF8.GetString(data);
         }
-        public string M4kReadAllBlocksToString( byte[]? authKey = null)
+        public string M4kReadAllBlocksToString(byte[]? authKey = null)
         {
             if (authKey == null) authKey = _defaultKey;
             StringBuilder content = new StringBuilder();
@@ -206,7 +206,7 @@ namespace MifareClassic
                 int firstBlock = GetFirstBlockOfSector(sector);
 
                 // Authenticate first block only (will be enough for each sector)
-                AuthenticateBlock(_hCard, (uint)_activeProtocol, (byte)firstBlock, 0x60, 0x00, authKey);  
+                AuthenticateBlock(_hCard, (uint)_activeProtocol, (byte)firstBlock, 0x60, 0x00, authKey);
 
                 for (byte i = 0; i < blocksInSector; i++)
                 {
@@ -216,7 +216,7 @@ namespace MifareClassic
                         content.Append(M4kReadBlock(_hCard, (uint)_activeProtocol, blockNumber));
                     }
                 }
-            }            
+            }
             return content.ToString();
         }
         private int GetFirstBlockOfSector(int sector)
@@ -261,7 +261,7 @@ namespace MifareClassic
             //Encoding.ASCII.GetBytes(blockData).CopyTo(writeBlock, 5);
             Array.Copy(blockData, 0, writeBlock, 5, Math.Min(16, blockData.Length));
 
-            SendAPDU(_hCard, writeBlock); 
+            SendAPDU(_hCard, writeBlock);
         }
 
         public void M4kWriteAllBlocksToString(string reader, string data, bool clearCard = false)
@@ -270,7 +270,7 @@ namespace MifareClassic
             byte[] dataInBytes = Encoding.UTF8.GetBytes(data);
             //Split data to 16 bytes
             int count = 0;
-            for (int i = 0 ; i < dataInBytes.Length; i += 16)
+            for (int i = 0; i < dataInBytes.Length; i += 16)
             {
                 if (count == M4kWritableBlocks.Count) { break; }
                 int blockSize = Math.Min(16, dataInBytes.Length - i);
@@ -288,7 +288,7 @@ namespace MifareClassic
                 }
             }
             //Write actual data
-            for (int i = 0; i < chunkedData.Count; i++) 
+            for (int i = 0; i < chunkedData.Count; i++)
             {
                 M4kWriteBlock(chunkedData[i], M4kWritableBlocks[i]);
             }
