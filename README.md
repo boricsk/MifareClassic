@@ -38,6 +38,6 @@ namespace MifareClassic4KDemo
 }
 ```
 <p align="center">
-  <img src=./out.jpg height="64" width="64">
+  <img src=./out.jpg>
 </p>
 
