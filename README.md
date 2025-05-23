@@ -16,7 +16,7 @@ namespace MifareClassic4KDemo
     {
         static void Main(string[] args)
         {
-            //Create class
+            //Create class instance
             MifareClassicCard myCard = new MifareClassicCard();
             //Get reader name
             Console.WriteLine(myCard.GetReaderName());
