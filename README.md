@@ -8,3 +8,14 @@
 
 - Usage
 > Usage examples coming soon...
+
+```csharp
+//Test codebox
+public void MyMethod(byte[] data = null)
+{
+    if (data == null)
+    {
+        data = new byte[0];
+    }
+}
+```
