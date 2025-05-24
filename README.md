@@ -7,7 +7,7 @@
 
 
 - Usage
-> With this class it is possible to write to MIFARE Classic 4k cards with the default authentication key, retrieve the reader name and the card UID. For writing, the input is given in string format, the read is also given as string type. If the size of the string given as input is larger than the card memory the input will be truncated. Let see the examples.
+> With this class it is possible to write and read to MIFARE Classic 4k cards with the default authentication key, retrieve the reader name and the card UID. For writing, the input is given in string format, the read is also given as string type. If the size of the string given as input is larger than the card memory the input will be truncated. Let see the examples.
 
 ```csharp
 namespace MifareClassic4KDemo
