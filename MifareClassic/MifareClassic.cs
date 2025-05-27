@@ -41,6 +41,12 @@ namespace MifareClassic
         [DllImport("winscard.dll")]
         static extern int SCardDisconnect(IntPtr hCard, int dwDisposition);
 
+        [DllImport("winscard.dll")]
+        public static extern int SCardStatus(IntPtr hCard, StringBuilder szReaderName, ref int pcchReaderLen, out int pdwState, out int pdwProtocol, byte[] pbAtr, ref int pcbAtrLen);
+
+        [DllImport("winscard.dll")]
+        public static extern int SCardReleaseContext(IntPtr hContext);
+
         [StructLayout(LayoutKind.Sequential)]
         public struct SCARD_IO_REQUEST
         {

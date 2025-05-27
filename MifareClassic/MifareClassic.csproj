@@ -10,6 +10,7 @@
     <RepositoryType>git</RepositoryType>
     <Authors>Borics Krisztián</Authors>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+	  <Version>1.0.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
